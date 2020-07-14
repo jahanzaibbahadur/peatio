@@ -164,17 +164,24 @@ module Jobs::Cron
             case liability['reference_type']
               when 'Adjustment'
                 adjustment = Adjustment.find(liability['reference_id'])
-                queries << process_adjustment(pnl_currency, liability['id'], adjustment)
+                if adjustment.state == "accepted"
+                  queries << process_adjustment(pnl_currency, liability['id'], adjustment)
+                end
               when 'Deposit'
                 deposit = Deposit.find(liability['reference_id'])
-                queries << process_deposit(pnl_currency, liability['id'], deposit)
+                if deposit.is_a?(Deposits::Fiat) && deposit.aasm_state == "accepted" \
+                  || deposit.is_a?(Deposits::Coin) && deposit.aasm_state == "collected"
+                  queries << process_deposit(pnl_currency, liability['id'], deposit)
+                end
               when 'Trade'
                 trade = Trade.find(liability['reference_id'])
                 queries += process_order(pnl_currency, liability['id'], trade, trade.maker_order)
                 queries += process_order(pnl_currency, liability['id'], trade, trade.taker_order)
               when 'Withdraw'
                 withdraw = Withdraw.find(liability['reference_id'])
-                queries << process_withdraw(pnl_currency, liability['id'], withdraw)
+                if withdraw.aasm_state == "succeed"
+                  queries << process_withdraw(pnl_currency, liability['id'], withdraw)
+                end
             end
         end
         transfers = {}
