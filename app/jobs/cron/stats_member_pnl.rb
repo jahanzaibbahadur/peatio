@@ -289,7 +289,7 @@ module Jobs::Cron
         "VALUES (#{member_id},'#{pnl_currency.id}','#{currency_id}',#{total_credit},#{total_credit_fees},#{total_credit_value},#{liability_id},#{total_debit},#{total_debit_value},#{total_debit_fees},#{total_credit_value},#{average_balance_price}) " \
         'ON DUPLICATE KEY UPDATE ' \
         'total_balance_value = total_balance_value + VALUES(total_balance_value) - IF(VALUES(total_debit) = 0, 0, (VALUES(total_debit) + VALUES(total_debit_fees)) * average_balance_price), ' \
-        "average_balance_price = IF(VALUES(total_credit) = 0, average_balance_price, total_balance_value / (VALUES(total_credit) + total_credit - total_debit)), " \
+        "average_balance_price = IF(VALUES(total_credit) = 0, average_balance_price, total_balance_value / (VALUES(total_credit) + total_credit - total_debit - total_debit_fees)), " \
         'total_credit = total_credit + VALUES(total_credit), ' \
         'total_credit_fees = total_credit_fees + VALUES(total_credit_fees), ' \
         'total_debit_fees = total_debit_fees + VALUES(total_debit_fees), ' \
