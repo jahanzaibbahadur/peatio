@@ -419,14 +419,15 @@ describe Jobs::Cron::StatsMemberPnl do
     end
 
     context 'liability for reference type deposit' do
-      let!(:coin_deposit) { create(:deposit, :deposit_btc, aasm_state: "collected") }
+      let!(:coin_deposit) { create(:deposit, :deposit_btc) }
       let!(:pnl) { create(:stats_member_pnl, last_liability_id: 1) }
       let!(:trade_btceth) { create(:trade, :btceth, price: '1.0'.to_d, amount: '0.3'.to_d, total: '5.5'.to_d) }
 
-      let!(:liability) { create(:liability, id: 2, member: member, credit: 190.0, reference_type: 'Deposit', reference_id: coin_deposit.id) }
-
       before do
         Jobs::Cron::StatsMemberPnl.stubs(:price_at).returns(trade_btceth.price.to_f)
+        coin_deposit.accept!
+        coin_deposit.process!
+        coin_deposit.dispatch!
       end
 
       it do
@@ -455,14 +456,14 @@ describe Jobs::Cron::StatsMemberPnl do
     end
 
     context 'liability for reference type deposit (not yet collected)' do
-      let!(:coin_deposit) { create(:deposit, :deposit_btc, aasm_state: "submitted") }
+      let!(:coin_deposit) { create(:deposit, :deposit_btc) }
       let!(:pnl) { create(:stats_member_pnl, last_liability_id: 1) }
       let!(:trade_btceth) { create(:trade, :btceth, price: '1.0'.to_d, amount: '0.3'.to_d, total: '5.5'.to_d) }
 
-      let!(:liability) { create(:liability, id: 2, member: member, credit: 190.0, reference_type: 'Deposit', reference_id: coin_deposit.id) }
-
       before do
         Jobs::Cron::StatsMemberPnl.stubs(:price_at).returns(trade_btceth.price.to_f)
+        coin_deposit.accept!
+        coin_deposit.process!
       end
 
       it do

@@ -151,13 +151,12 @@ module Jobs::Cron
         batch_size = 1000
         queries = []
         liability_pointer = max_liability(pnl_currency)
-        # We use MIN function here instead of ANY_VALUE to be compatible with many MySQL versions
+
         ActiveRecord::Base.connection
-          .select_all("SELECT MAX(id) id, MIN(reference_type) reference_type, MIN(reference_id) reference_id " \
-                      "FROM liabilities WHERE id > #{liability_pointer} " \
-                      "AND ((reference_type IN ('Trade','Deposit','Adjustment') AND code IN (201,202)) " \
-                      "OR (reference_type IN ('Withdraw') AND code IN (211,212))) " \
-                      "GROUP BY reference_type, reference_id ORDER BY MAX(id) ASC LIMIT #{batch_size}")
+          .select_all("SELECT id, reference_type, reference_id FROM liabilities WHERE id > #{liability_pointer} " \
+            "AND ((reference_type IN ('Trade','Deposit','Adjustment') AND code IN (201,202)) " \
+            "OR (reference_type IN ('Withdraw') AND code IN (211,212) AND debit > 0)) " \
+            "ORDER BY id ASC LIMIT #{batch_size}")
           .each do |liability|
             l_count += 1
             Rails.logger.info { "Process liability: #{liability['id']} (#{liability['reference_type']})" }
