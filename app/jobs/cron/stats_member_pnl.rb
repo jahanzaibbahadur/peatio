@@ -242,10 +242,12 @@ module Jobs::Cron
         l_count = 0
         pnl_currencies.each do |pnl_currency|
           Currency.visible.each do |currency|
-            l_count += process_currency(pnl_currency, currency)
-          rescue StandardError => e
-            Rails.logger.error("Failed to process currency #{pnl_currency.id}: #{e}: #{e.backtrace.join("\n")}")
-            # TODO: Count the error in prometheus for this currency
+            begin
+              l_count += process_currency(pnl_currency, currency)
+            rescue StandardError => e
+              Rails.logger.error("Failed to process currency #{pnl_currency.id}/#{currency.id}: #{e}: #{e.backtrace.join("\n")}")
+              # TODO: Count the error in prometheus for this currency
+            end
           end
         end
 
