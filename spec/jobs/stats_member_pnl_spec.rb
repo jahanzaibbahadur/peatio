@@ -193,7 +193,7 @@ describe Jobs::Cron::StatsMemberPnl do
         let!(:pnl) { create(:stats_member_pnl, last_liability_id: 1) }
         let!(:trade_btceth) { create(:trade, :btceth, price: '1.0'.to_d, amount: '0.3'.to_d, total: '5.5'.to_d) }
 
-        let!(:liability1) { create(:liability, id: 2, member: member, credit: 190.0, reference_type: 'Deposit', reference_id: coin_deposit.id) }
+        let!(:liability1) { create(:liability, id: 2, member: member, credit: 190.0, reference_type: 'Deposit', currency: coin_deposit.currency, reference_id: coin_deposit.id) }
 
         before do
           Jobs::Cron::StatsMemberPnl.stubs(:price_at).returns(trade_btceth.price.to_f)
@@ -238,7 +238,7 @@ describe Jobs::Cron::StatsMemberPnl do
           create(:stats_member_pnl, currency_id: coin_deposit.currency_id, pnl_currency_id: 'eth', total_credit: 0.1,
                              total_credit_fees: '0.01'.to_d, total_credit_value: '0.3'.to_d, total_balance_value: '0.3'.to_d, member_id: coin_deposit.member_id, last_liability_id: 1)
         end
-        let!(:liability) { create(:liability, id: 2, member_id: coin_deposit.member_id, credit: 190.0, reference_type: 'Deposit', reference_id: coin_deposit.id) }
+        let!(:liability) { create(:liability, id: 2, member_id: coin_deposit.member_id, currency: coin_deposit.currency, credit: 190.0, reference_type: 'Deposit', reference_id: coin_deposit.id) }
 
         before do
           Jobs::Cron::StatsMemberPnl.stubs(:price_at).returns(trade_btceth.price.to_f)
