@@ -263,7 +263,8 @@ module Jobs::Cron
           .select_all('SELECT MAX(id) id, MIN(reference_type) reference_type, MIN(reference_id) reference_id FROM liabilities ' \
             "WHERE id > #{liability_pointer} " \
             "AND currency_id = '#{currency.id}' " \
-            "AND ((reference_type IN ('Trade','Deposit','Adjustment','Transfer') AND code IN (201,202)) " \
+            "AND ((reference_type IN ('Trade','Adjustment','Transfer') AND code IN (201,202)) " \
+            "OR (reference_type IN ('Deposit') AND code IN (201,212) AND credit > 0) " \
             "OR (reference_type IN ('Withdraw','Transfer') AND code IN (211,212) AND debit > 0)) " \
             'GROUP BY reference_type, reference_id ' \
             "ORDER BY MAX(id) ASC LIMIT #{batch_size}")
@@ -279,7 +280,7 @@ module Jobs::Cron
               when 'Deposit'
                 deposit = Deposit.find(liability['reference_id'])
                 if deposit.is_a?(Deposits::Fiat) && deposit.aasm_state == "accepted" \
-                  || deposit.is_a?(Deposits::Coin) && deposit.aasm_state == "collected"
+                  || deposit.is_a?(Deposits::Coin)
                   queries << process_deposit(pnl_currency, liability['id'], deposit)
                 end
               when 'Trade'
