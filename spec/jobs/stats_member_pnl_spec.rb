@@ -159,15 +159,15 @@ describe Jobs::Cron::StatsMemberPnl do
 
     context 'reference type deposit' do
       context 'creates one pnl' do
-        let!(:coin_deposit) { create(:deposit, :deposit_btc, aasm_state: 'collected') }
-        let!(:pnl) { create(:stats_member_pnl, last_liability_id: 1) }
+        let!(:coin_deposit) { create(:deposit, :deposit_btc) }
+        let!(:pnl) { create(:stats_member_pnl, last_liability_id: 0) }
         let!(:trade_btceth) { create(:trade, :btceth, price: '1.0'.to_d, amount: '0.3'.to_d, total: '5.5'.to_d) }
-
-        let!(:liability) { create(:liability, id: 2, currency: coin_deposit.currency, member: member, credit: 190.0, reference_type: 'Deposit', reference_id: coin_deposit.id) }
 
         before do
           Jobs::Cron::StatsMemberPnl.stubs(:price_at).returns(trade_btceth.price.to_f)
           Jobs::Cron::StatsMemberPnl.stubs(:pnl_currencies).returns([Currency.find('eth')])
+          coin_deposit.accept!
+          coin_deposit.process!
         end
 
         it do
@@ -183,22 +183,21 @@ describe Jobs::Cron::StatsMemberPnl do
           expect(StatsMemberPnl.last.total_credit_value).to eq coin_deposit.amount * trade_btceth.price
           expect(StatsMemberPnl.last.total_balance_value).to eq coin_deposit.amount * trade_btceth.price
           expect(StatsMemberPnl.last.average_balance_price).to eq trade_btceth.price
-          expect(StatsMemberPnl.last.last_liability_id).to eq liability.id
         end
       end
 
       context 'creates several pnls' do
-        let!(:coin_deposit) { create(:deposit, :deposit_btc, aasm_state: 'collected') }
+        let!(:coin_deposit) { create(:deposit, :deposit_btc) }
         let!(:fiat_deposit) { create(:deposit_usd, amount: 190.0) }
-        let!(:pnl) { create(:stats_member_pnl, last_liability_id: 1) }
+        let!(:pnl) { create(:stats_member_pnl, last_liability_id: 0) }
         let!(:trade_btceth) { create(:trade, :btceth, price: '1.0'.to_d, amount: '0.3'.to_d, total: '5.5'.to_d) }
-
-        let!(:liability1) { create(:liability, id: 2, member: member, credit: 190.0, reference_type: 'Deposit', currency: coin_deposit.currency, reference_id: coin_deposit.id) }
 
         before do
           Jobs::Cron::StatsMemberPnl.stubs(:price_at).returns(trade_btceth.price.to_f)
           Jobs::Cron::StatsMemberPnl.stubs(:pnl_currencies).returns([Currency.find('eth')])
           fiat_deposit.accept!
+          coin_deposit.accept!
+          coin_deposit.process!
         end
 
         it do
@@ -215,7 +214,6 @@ describe Jobs::Cron::StatsMemberPnl do
           expect(StatsMemberPnl.second.total_credit_value).to eq coin_deposit.amount * trade_btceth.price
           expect(StatsMemberPnl.second.total_balance_value).to eq coin_deposit.amount * trade_btceth.price
           expect(StatsMemberPnl.second.average_balance_price).to eq trade_btceth.price
-          expect(StatsMemberPnl.second.last_liability_id).to eq liability1.id
 
           expect(StatsMemberPnl.last.member_id).to eq fiat_deposit.member_id
           expect(StatsMemberPnl.last.pnl_currency_id).to eq 'eth'
@@ -232,17 +230,18 @@ describe Jobs::Cron::StatsMemberPnl do
       end
 
       context 'calculation on existing pnl' do
-        let!(:coin_deposit) { create(:deposit, :deposit_btc, amount: '0.1'.to_d, aasm_state: 'collected') }
+        let!(:coin_deposit) { create(:deposit, :deposit_btc, amount: '0.1'.to_d) }
         let!(:trade_btceth) { create(:trade, :btceth, price: '1.0'.to_d, amount: '0.3'.to_d, total: '5.5'.to_d) }
         let!(:pnl) do
           create(:stats_member_pnl, currency_id: coin_deposit.currency_id, pnl_currency_id: 'eth', total_credit: 0.1,
-                             total_credit_fees: '0.01'.to_d, total_credit_value: '0.3'.to_d, total_balance_value: '0.3'.to_d, member_id: coin_deposit.member_id, last_liability_id: 1)
+                             total_credit_fees: '0.01'.to_d, total_credit_value: '0.3'.to_d, total_balance_value: '0.3'.to_d, member_id: coin_deposit.member_id, last_liability_id: 0)
         end
-        let!(:liability) { create(:liability, id: 2, member_id: coin_deposit.member_id, currency: coin_deposit.currency, credit: 190.0, reference_type: 'Deposit', reference_id: coin_deposit.id) }
 
         before do
           Jobs::Cron::StatsMemberPnl.stubs(:price_at).returns(trade_btceth.price.to_f)
           Jobs::Cron::StatsMemberPnl.stubs(:pnl_currencies).returns([Currency.find('eth')])
+          coin_deposit.accept!
+          coin_deposit.process!
         end
 
         it do
@@ -258,7 +257,6 @@ describe Jobs::Cron::StatsMemberPnl do
           expect(StatsMemberPnl.last.total_debit_value).to eq 0
           expect(StatsMemberPnl.last.total_balance_value).to eq(pnl.total_credit_value + coin_deposit.amount * trade_btceth.price)
           expect(StatsMemberPnl.last.average_balance_price).to eq((pnl.total_balance_value + coin_deposit.amount * trade_btceth.price) / (coin_deposit.amount + pnl.total_credit - pnl.total_debit))
-          expect(StatsMemberPnl.last.last_liability_id).to eq(liability.id)
         end
       end
     end
@@ -468,7 +466,7 @@ describe Jobs::Cron::StatsMemberPnl do
       end
 
       it do
-        expect { Jobs::Cron::StatsMemberPnl.process }.to change { StatsMemberPnl.count }.by(0)
+        expect { Jobs::Cron::StatsMemberPnl.process }.to change { StatsMemberPnl.count }.by(2)
       end
     end
   end
