@@ -328,12 +328,20 @@ module Jobs::Cron
       end
 
       def build_query(member_id, pnl_currency, currency_id, total_credit, total_credit_fees, total_credit_value, total_debit, total_debit_value, total_debit_fees)
-        average_balance_price = total_credit.zero? ? 0 : (total_credit_value / total_credit)
+        if pnl_currency.id == currency_id
+          average_balance_price = 1
+          avg_balance_formula = '1'
+        else
+          average_balance_price = total_credit.zero? ? 0 : (total_credit_value / total_credit)
+          balance_formula = '(VALUES(total_credit) + total_credit - total_debit - total_debit_fees)'
+          avg_balance_formula = "IF(VALUES(total_credit)=0 OR #{balance_formula}=0, average_balance_price, total_balance_value/#{balance_formula})"
+        end
+
         'INSERT INTO stats_member_pnl (member_id, pnl_currency_id, currency_id, total_credit, total_credit_fees, total_credit_value, total_debit, total_debit_value, total_debit_fees, total_balance_value, average_balance_price) ' \
         "VALUES (#{member_id},'#{pnl_currency.id}','#{currency_id}',#{total_credit},#{total_credit_fees},#{total_credit_value},#{total_debit},#{total_debit_value},#{total_debit_fees},#{total_credit_value},#{average_balance_price}) " \
         'ON DUPLICATE KEY UPDATE ' \
         'total_balance_value = total_balance_value + VALUES(total_balance_value) - IF(VALUES(total_debit) = 0, 0, (VALUES(total_debit) + VALUES(total_debit_fees)) * average_balance_price), ' \
-        'average_balance_price = IF(VALUES(total_credit)=0 OR (VALUES(total_credit) + total_credit - total_debit - total_debit_fees)=0 , average_balance_price, total_balance_value / (VALUES(total_credit) + total_credit - total_debit - total_debit_fees)), ' \
+        "average_balance_price = #{avg_balance_formula}, " \
         'total_credit = total_credit + VALUES(total_credit), ' \
         'total_credit_fees = total_credit_fees + VALUES(total_credit_fees), ' \
         'total_debit_fees = total_debit_fees + VALUES(total_debit_fees), ' \
