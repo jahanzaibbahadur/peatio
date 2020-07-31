@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2020_07_03_142432) do
+ActiveRecord::Schema.define(version: 2020_07_31_084234) do
 
   create_table "accounts", id: :integer, options: "ENGINE=InnoDB DEFAULT CHARSET=utf8", force: :cascade do |t|
     t.integer "member_id", null: false
@@ -290,11 +290,20 @@ ActiveRecord::Schema.define(version: 2020_07_03_142432) do
     t.decimal "total_debit_value", precision: 48, scale: 16, default: "0.0"
     t.decimal "total_balance_value", precision: 48, scale: 16, default: "0.0"
     t.decimal "average_balance_price", precision: 48, scale: 16, default: "0.0"
-    t.bigint "last_liability_id"
-    t.datetime "created_at", default: -> { "CURRENT_TIMESTAMP" }, null: false
-    t.datetime "updated_at", default: -> { "CURRENT_TIMESTAMP" }, null: false
-    t.index ["last_liability_id"], name: "index_stats_member_pnl_on_last_liability_id"
+    t.datetime "created_at", default: -> { "current_timestamp()" }, null: false
+    t.datetime "updated_at", default: -> { "current_timestamp()" }, null: false
     t.index ["pnl_currency_id", "currency_id", "member_id"], name: "index_currency_ids_and_member_id", unique: true
+  end
+
+  create_table "stats_member_pnl_idx", options: "ENGINE=InnoDB DEFAULT CHARSET=utf8", force: :cascade do |t|
+    t.string "pnl_currency_id", limit: 10, null: false
+    t.string "currency_id", limit: 10, null: false
+    t.string "reference_type", null: false
+    t.bigint "last_id"
+    t.datetime "created_at", default: -> { "current_timestamp()" }, null: false
+    t.datetime "updated_at", default: -> { "current_timestamp()" }, null: false
+    t.index ["pnl_currency_id", "currency_id", "last_id"], name: "index_currency_ids_and_last_id"
+    t.index ["pnl_currency_id", "currency_id", "reference_type"], name: "index_currency_ids_and_type", unique: true
   end
 
   create_table "trades", id: :integer, options: "ENGINE=InnoDB DEFAULT CHARSET=utf8", force: :cascade do |t|

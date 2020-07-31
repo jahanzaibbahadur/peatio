@@ -46,12 +46,10 @@ end
 #  total_credit_value    :decimal(32, 16)
 #  total_debit_value     :decimal(32, 16)
 #  total_balance_value   :decimal(32, 16)
-#  last_liability_id     :bigint
 #  created_at            :datetime         not null
 #  updated_at            :datetime         not null
 #
 # Indexes
 #
 #  index_currency_ids_and_member_id       (pnl_currency_id,currency_id,member_id) UNIQUE
-#  index_portfolios_on_last_liability_id  (last_liability_id)
 #

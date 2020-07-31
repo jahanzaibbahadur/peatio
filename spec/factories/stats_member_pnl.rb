@@ -14,6 +14,5 @@ FactoryBot.define do
     total_debit_value { 0 }
     total_balance_value { 0 }
     average_balance_price { 0 }
-    last_liability_id { 0 }
   end
 end
