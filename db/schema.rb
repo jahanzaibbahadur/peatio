@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2020_07_31_084234) do
+ActiveRecord::Schema.define(version: 2020_07_31_130031) do
 
   create_table "accounts", id: :integer, options: "ENGINE=InnoDB DEFAULT CHARSET=utf8", force: :cascade do |t|
     t.integer "member_id", null: false
@@ -34,8 +34,8 @@ ActiveRecord::Schema.define(version: 2020_07_31_084234) do
     t.string "currency_id", null: false
     t.integer "category", limit: 1, null: false
     t.integer "state", limit: 1, null: false
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
+    t.datetime "created_at", precision: 3, null: false
+    t.datetime "updated_at", precision: 3, null: false
     t.index ["currency_id", "state"], name: "index_adjustments_on_currency_id_and_state"
     t.index ["currency_id"], name: "index_adjustments_on_currency_id"
   end
@@ -123,9 +123,9 @@ ActiveRecord::Schema.define(version: 2020_07_31_084234) do
     t.string "type", limit: 30, null: false
     t.string "tid", limit: 64, null: false, collation: "utf8_bin"
     t.string "spread", limit: 1000
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.datetime "completed_at"
+    t.datetime "created_at", precision: 3, null: false
+    t.datetime "updated_at", precision: 3, null: false
+    t.datetime "completed_at", precision: 3
     t.index ["aasm_state", "member_id", "currency_id"], name: "index_deposits_on_aasm_state_and_member_id_and_currency_id"
     t.index ["currency_id", "txid", "txout"], name: "index_deposits_on_currency_id_and_txid_and_txout", unique: true
     t.index ["currency_id"], name: "index_deposits_on_currency_id"
@@ -316,8 +316,8 @@ ActiveRecord::Schema.define(version: 2020_07_31_084234) do
     t.integer "maker_id", null: false
     t.integer "taker_id", null: false
     t.string "taker_type", limit: 20, null: false
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
+    t.datetime "created_at", precision: 3, null: false
+    t.datetime "updated_at", precision: 3, null: false
     t.index ["created_at"], name: "index_trades_on_created_at"
     t.index ["maker_id", "taker_id"], name: "index_trades_on_maker_id_and_taker_id"
     t.index ["maker_order_id"], name: "index_trades_on_maker_order_id"
@@ -341,8 +341,8 @@ ActiveRecord::Schema.define(version: 2020_07_31_084234) do
     t.string "key", limit: 30, null: false
     t.integer "category", limit: 1, null: false
     t.string "description", default: ""
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
+    t.datetime "created_at", precision: 3, null: false
+    t.datetime "updated_at", precision: 3, null: false
     t.index ["key"], name: "index_transfers_on_key", unique: true
   end
 
@@ -391,9 +391,9 @@ ActiveRecord::Schema.define(version: 2020_07_31_084234) do
     t.string "rid", limit: 95, null: false
     t.string "note", limit: 256
     t.json "error"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.datetime "completed_at"
+    t.datetime "created_at", precision: 3, null: false
+    t.datetime "updated_at", precision: 3, null: false
+    t.datetime "completed_at", precision: 3
     t.index ["aasm_state"], name: "index_withdraws_on_aasm_state"
     t.index ["currency_id", "txid"], name: "index_withdraws_on_currency_id_and_txid", unique: true
     t.index ["currency_id"], name: "index_withdraws_on_currency_id"

@@ -458,7 +458,7 @@ describe Jobs::Cron::StatsMemberPnl do
       d = create(:deposit_btc, member: member_platform, amount: 0.09)
       d.accept!
       d.process!
-      d.dispatch
+      d.dispatch!
 
       transfers_attr = [
         {

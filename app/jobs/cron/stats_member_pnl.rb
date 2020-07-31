@@ -3,16 +3,68 @@ module Jobs::Cron
     Error = Class.new(StandardError)
 
     class <<self
+      def process_currency(pnl_currency, currency)
+        l_count = 0
+        batch_size = 1000
+        queries = []
+        idx = last_idx(pnl_currency, currency)
+
+        query = "
+        SELECT 'Trade', id, updated_at as ts FROM trades WHERE id > #{idx['Trade']} UNION
+        SELECT 'Adjustment', id, updated_at as ts FROM adjustments WHERE id > #{idx['Adjustment']} AND currency_id = '#{currency.id}' AND state = 'accepted' UNION
+        SELECT 'Transfer', id, updated_at as ts FROM transfers WHERE id > #{idx['Transfer']} UNION
+        SELECT 'Withdraw', id, completed_at as ts FROM withdraws WHERE completed_at > '#{idx['Withdraw']}' AND currency_id = '#{currency.id}' AND aasm_state = 'succeed' UNION
+        SELECT 'Deposit', id, created_at as ts FROM deposits WHERE created_at > '#{idx['DepositCoin']}' AND currency_id = '#{currency.id}' AND type = 'Deposits::Coin' UNION
+        SELECT 'Deposit', id, completed_at as ts FROM deposits WHERE completed_at > '#{idx['DepositFiat']}' AND currency_id = '#{currency.id}' AND type = 'Deposits::Fiat' AND aasm_state = 'accepted'
+        ORDER BY ts ASC LIMIT #{batch_size};"
+
+        ActiveRecord::Base.connection.select_all(query).rows.each do |r|
+            l_count += 1
+            Rails.logger.info { "Processing: #{r[0]} #{r[1]} (#{pnl_currency.id} / #{currency.id})" }
+            case r[0]
+              when 'Adjustment'
+                adjustment = Adjustment.find(r[1])
+                queries += process_adjustment(pnl_currency, adjustment)
+              when 'Deposit'
+                deposit = Deposit.find(r[1])
+                queries += process_deposit(pnl_currency, deposit)
+              when 'Trade'
+                trade = Trade.find(r[1])
+                buy_order = trade.buy_order
+                sell_order = trade.sell_order
+                queries += process_trade(pnl_currency, currency, trade, buy_order)
+                queries += process_trade(pnl_currency, currency, trade, sell_order)
+              when 'Withdraw'
+                withdraw = Withdraw.find(r[1])
+                queries += process_withdraw(pnl_currency, withdraw)
+              when 'Transfer'
+                queries += process_transfer(pnl_currency, currency, r[1])
+            end
+        end
+
+        update_pnl(queries) unless queries.empty?
+
+        l_count
+      end
+
       def last_idx(pnl_currency, currency)
         query = "SELECT reference_type, last_id FROM stats_member_pnl_idx WHERE currency_id = '#{currency.id}' AND pnl_currency_id = '#{pnl_currency.id}'"
         h = {
           "Trade" => 0,
-          "Deposit" => 0,
-          "Withdraw" => 0,
+          "DepositFiat" => "1970-01-01 00:00:00.000",
+          "DepositCoin" => "1970-01-01 00:00:00.000",
+          "Withdraw" => "1970-01-01 00:00:00.000",
           "Adjustment" => 0,
           "Transfer" => 0,
         }
-        ActiveRecord::Base.connection.select_all(query).rows.each { |r| h[r[0]] = r[1] }
+        ActiveRecord::Base.connection.select_all(query).rows.each do |name, idx|
+          case name
+          when 'Withdraw', /^Deposit/
+            h[name] = Time.at(idx.to_f / 1000).utc.strftime("%F %T.%3N")
+          else
+            h[name] = idx
+          end
+        end
         h
       end
 
@@ -90,7 +142,7 @@ module Jobs::Cron
         end
 
         if market.quote_unit == pnl_currency.id
-          # Direct conversion
+          # Using trade price (direct conversion)
           if order.income_currency.id == currency.id
             order.side == 'buy' ? total_credit_value = total_credit * trade.price : total_credit_value = total_credit
             queries << build_query(order.member_id, pnl_currency, order.income_currency.id, total_credit, total_credit_fees, total_credit_value, 0, 0, 0)
@@ -103,7 +155,7 @@ module Jobs::Cron
             queries << build_query_idx(pnl_currency, order.outcome_currency.id, 'Trade', trade.id)
           end
         else
-          # Complex conversion path
+          # User last market price
           if order.income_currency.id == currency.id
             total_credit_value = (total_credit) * price_at(order.income_currency.id, pnl_currency.id, trade.created_at)
             queries << build_query(order.member_id, pnl_currency, order.income_currency.id, total_credit, total_credit_fees, total_credit_value, 0, 0, 0)
@@ -144,10 +196,16 @@ module Jobs::Cron
         total_credit = deposit.amount
         total_credit_fees = deposit.fee
         total_credit_value = total_credit * price_at(deposit.currency_id, pnl_currency.id, deposit.created_at)
-        [
-          build_query(deposit.member_id, pnl_currency, deposit.currency_id, total_credit, total_credit_fees, total_credit_value, 0, 0, 0),
-          build_query_idx(pnl_currency, deposit.currency_id, 'Deposit', deposit.id)
-        ]
+
+        queries = [build_query(deposit.member_id, pnl_currency, deposit.currency_id, total_credit, total_credit_fees, total_credit_value, 0, 0, 0)]
+
+        case deposit
+        when Deposits::Fiat
+          queries << build_query_idx(pnl_currency, deposit.currency_id, 'DepositFiat', (deposit.completed_at.to_f * 1000).to_i)
+        when Deposits::Coin
+          queries << build_query_idx(pnl_currency, deposit.currency_id, 'DepositCoin', (deposit.created_at.to_f * 1000).to_i)
+        end
+        queries
       end
 
       def process_withdraw(pnl_currency, withdraw)
@@ -158,107 +216,105 @@ module Jobs::Cron
 
         [
           build_query(withdraw.member_id, pnl_currency, withdraw.currency_id, 0, 0, 0, total_debit, total_debit_value, total_debit_fees),
-          build_query_idx(pnl_currency, withdraw.currency_id, 'Withdraw', withdraw.id)
+          build_query_idx(pnl_currency, withdraw.currency_id, 'Withdraw', (withdraw.completed_at.to_f * 1000).to_i)
         ]
       end
 
       def process_transfer(pnl_currency, currency, reference_id)
-        transfers = {}
+        transfer = {}
         queries = []
-        liabilities = ActiveRecord::Base.connection
-        .select_all("SELECT currency_id, member_id, reference_type, reference_id, SUM(credit-debit) as total FROM liabilities " \
-                    "WHERE reference_type = 'Transfer' AND reference_id = #{reference_id} " \
-                    "GROUP BY currency_id, member_id, reference_type, reference_id")
 
+        q = "SELECT currency_id, member_id, reference_type, reference_id, SUM(credit-debit) as total FROM liabilities " \
+        "WHERE reference_type = 'Transfer' AND reference_id = #{reference_id} " \
+        "GROUP BY currency_id, member_id, reference_type, reference_id"
+        liabilities = ActiveRecord::Base.connection.select_all(q)
         liabilities.each do |l|
           next if l['total'].zero?
 
-          ref = l['reference_id']
           cid = l['currency_id']
-          transfers[ref] ||= {}
-          transfers[ref][cid] ||= {
+          transfer[cid] ||= {
             type: nil,
             liabilities: []
           }
 
-          transfers[ref][cid][:liabilities] << l
+          transfer[cid][:liabilities] << l
         end
 
-        transfers.each do |ref, transfer|
-          case transfer.size # number of currencies in the transfer
-          when 1
-            # Probably a lock transfer, ignoring
+        case transfer.size # number of currencies in the transfer
+        when 0
+        when 1
+          # Probably a lock transfer, ignoring
 
-          when 2
-            # We have 2 currencies exchanged, so we can calculate a price
-            store = Hash.new do |member_store, mid|
-              member_store[mid] = Hash.new do |h, k|
-                h[k] = {
-                  total_debit_fees: 0,
-                  total_credit_fees: 0,
-                  total_credit: 0,
-                  total_debit: 0,
-                  total_amount: 0,
-                }
-              end
+        when 2
+          # We have 2 currencies exchanged, so we can calculate a price
+          store = Hash.new do |member_store, mid|
+            member_store[mid] = Hash.new do |h, k|
+              h[k] = {
+                total_debit_fees: 0,
+                total_credit_fees: 0,
+                total_credit: 0,
+                total_debit: 0,
+                total_amount: 0,
+              }
             end
-
-            transfer.each do |cid, infos|
-              Operations::Revenue.where(reference_type: 'Transfer', reference_id: ref, currency_id: cid).each do |fee|
-                store[fee.member_id][cid][:total_debit_fees] += fee.credit
-                store[fee.member_id][cid][:total_debit] -= fee.credit
-                # We don't support fees payed on credit, they are all considered debit fees
-              end
-
-              infos[:liabilities].each do |l|
-                store[l['member_id']] ||= {}
-                store[l['member_id']][cid]
-
-                if l['total'].positive?
-                  store[l['member_id']][cid][:total_credit] += l['total']
-                  store[l['member_id']][cid][:total_amount] += l['total']
-                else
-                  store[l['member_id']][cid][:total_debit] -= l['total']
-                  store[l['member_id']][cid][:total_amount] -= l['total']
-                end
-              end
-            end
-
-            def price_of_transfer(a_total, b_total)
-              b_total / a_total
-            end
-
-            store.each do |member_id, stats|
-              a, b = stats.keys
-
-              if a == pnl_currency.id
-                b, a = stats.keys
-              elsif b != pnl_currency.id
-                raise 'Need direct conversion for transfers'
-              end
-              next if stats[b][:total_amount].zero?
-
-              price = price_of_transfer(stats[a][:total_amount], stats[b][:total_amount])
-
-              a_total_credit_value = stats[a][:total_credit] * price
-              b_total_credit_value = stats[b][:total_credit]
-
-              a_total_debit_value = stats[a][:total_debit] * price
-              b_total_debit_value = stats[b][:total_debit]
-
-              if a == currency.id
-                queries << build_query(member_id, pnl_currency, a, stats[a][:total_credit], stats[a][:total_credit_fees], a_total_credit_value, stats[a][:total_debit], a_total_debit_value, stats[a][:total_debit_fees])
-                queries << build_query_idx(pnl_currency, a, 'Transfer', reference_id)
-              end
-              if b == currency.id
-                queries << build_query(member_id, pnl_currency, b, stats[b][:total_credit], stats[b][:total_credit_fees], b_total_credit_value, stats[b][:total_debit], b_total_debit_value, stats[b][:total_debit_fees])
-                queries << build_query_idx(pnl_currency, b, 'Transfer', reference_id)
-              end
-            end
-
-          else
-            raise 'Transfers with more than 2 currencies brakes pnl calculation'
           end
+
+          transfer.each do |cid, infos|
+            Operations::Revenue.where(reference_type: 'Transfer', reference_id: reference_id, currency_id: cid).each do |fee|
+              store[fee.member_id][cid][:total_debit_fees] += fee.credit
+              store[fee.member_id][cid][:total_debit] -= fee.credit
+              # We don't support fees payed on credit, they are all considered debit fees
+            end
+
+            byebug if infos.nil?
+            infos[:liabilities].each do |l|
+              store[l['member_id']] ||= {}
+              store[l['member_id']][cid]
+
+              if l['total'].positive?
+                store[l['member_id']][cid][:total_credit] += l['total']
+                store[l['member_id']][cid][:total_amount] += l['total']
+              else
+                store[l['member_id']][cid][:total_debit] -= l['total']
+                store[l['member_id']][cid][:total_amount] -= l['total']
+              end
+            end
+          end
+
+          def price_of_transfer(a_total, b_total)
+            b_total / a_total
+          end
+
+          store.each do |member_id, stats|
+            a, b = stats.keys
+
+            if a == pnl_currency.id
+              b, a = stats.keys
+            elsif b != pnl_currency.id
+              raise 'Need direct conversion for transfers'
+            end
+            next if stats[b][:total_amount].zero?
+
+            price = price_of_transfer(stats[a][:total_amount], stats[b][:total_amount])
+
+            a_total_credit_value = stats[a][:total_credit] * price
+            b_total_credit_value = stats[b][:total_credit]
+
+            a_total_debit_value = stats[a][:total_debit] * price
+            b_total_debit_value = stats[b][:total_debit]
+
+            if a == currency.id
+              queries << build_query(member_id, pnl_currency, a, stats[a][:total_credit], stats[a][:total_credit_fees], a_total_credit_value, stats[a][:total_debit], a_total_debit_value, stats[a][:total_debit_fees])
+              queries << build_query_idx(pnl_currency, a, 'Transfer', reference_id)
+            end
+            if b == currency.id
+              queries << build_query(member_id, pnl_currency, b, stats[b][:total_credit], stats[b][:total_credit_fees], b_total_credit_value, stats[b][:total_debit], b_total_debit_value, stats[b][:total_debit_fees])
+              queries << build_query_idx(pnl_currency, b, 'Transfer', reference_id)
+            end
+          end
+
+        else
+          raise 'Transfers with more than 2 currencies brakes pnl calculation'
         end
         queries
       end
@@ -277,49 +333,6 @@ module Jobs::Cron
         end
 
         sleep 2 if l_count == 0
-      end
-
-      def process_currency(pnl_currency, currency)
-        l_count = 0
-        batch_size = 1000
-        queries = []
-        idx = last_idx(pnl_currency, currency)
-
-        query = "
-        SELECT 'Trade', id, updated_at FROM trades WHERE id > #{idx['Trade']} UNION
-        SELECT 'Adjustment', id, updated_at FROM adjustments WHERE id > #{idx['Adjustment']} AND currency_id = '#{currency.id}' AND state = 'accepted' UNION
-        SELECT 'Transfer', id, updated_at FROM transfers WHERE id > #{idx['Transfer']} UNION
-        SELECT 'Withdraw', id, updated_at FROM withdraws WHERE id > #{idx['Withdraw']} AND currency_id = '#{currency.id}' AND aasm_state = 'succeed' UNION
-        SELECT 'Deposit', id, updated_at FROM deposits WHERE id > #{idx['Deposit']} AND currency_id = '#{currency.id}' AND (type = 'Deposits::Coin' OR (type = 'Deposits::Fiat' AND aasm_state = 'accepted'))
-        ORDER BY updated_at ASC LIMIT #{batch_size};"
-
-        ActiveRecord::Base.connection.select_all(query).rows.each do |r|
-            l_count += 1
-            Rails.logger.info { "Processing: #{r[0]} #{r[1]} (#{pnl_currency.id} / #{currency.id})" }
-            case r[0]
-              when 'Adjustment'
-                adjustment = Adjustment.find(r[1])
-                queries += process_adjustment(pnl_currency, adjustment)
-              when 'Deposit'
-                deposit = Deposit.find(r[1])
-                queries += process_deposit(pnl_currency, deposit)
-              when 'Trade'
-                trade = Trade.find(r[1])
-                buy_order = trade.buy_order
-                sell_order = trade.sell_order
-                queries += process_trade(pnl_currency, currency, trade, buy_order)
-                queries += process_trade(pnl_currency, currency, trade, sell_order)
-              when 'Withdraw'
-                withdraw = Withdraw.find(r[1])
-                queries += process_withdraw(pnl_currency, withdraw)
-              when 'Transfer'
-                queries += process_transfer(pnl_currency, currency, r[1])
-            end
-        end
-
-        update_pnl(queries) unless queries.empty?
-
-        l_count
       end
 
       def build_query_idx(pnl_currency, currency_id, reference_type, idx)
