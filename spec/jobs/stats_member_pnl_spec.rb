@@ -318,7 +318,7 @@ describe Jobs::Cron::StatsMemberPnl do
           expect(StatsMemberPnl.all[2].total_debit_value).to eq trade.total * btceth_price + pnl3.total_debit_value
           expect(StatsMemberPnl.all[2].total_credit_fees).to eq pnl3.total_credit_fees
           expect(StatsMemberPnl.all[2].total_credit_value).to eq pnl3.total_credit_value
-          expect(StatsMemberPnl.all[2].total_balance_value).to eq(pnl3.total_balance_value - trade.total * pnl3.average_balance_price)
+          expect(StatsMemberPnl.all[2].total_balance_value).to eq(0)
 
           expect(StatsMemberPnl.all[3].member_id).to eq trade.taker_order.member.id
           expect(StatsMemberPnl.all[3].pnl_currency_id).to eq 'eth'
