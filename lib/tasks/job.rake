@@ -67,9 +67,9 @@ namespace :job do
         # Compact liabilities beetwen: "2020-07-23 00:00:00" and "2020-07-24 00:00:00"
         args.with_defaults(min_time: (Time.now - 1.week).beginning_of_day.to_s(:db),
                           max_time: (Time.now - 6.day).beginning_of_day.to_s(:db))
-        result = ActiveRecord::Base.connection.exec_query("call compact_orders('#{args.min_time}', '#{args.max_time}', @pointer, @counter)")
+        result = ActiveRecord::Base.connection.exec_query("call compact_orders('#{args.min_time}', '#{args.max_time}');")
         ActiveRecord::Base.clear_active_connections!
-        result
+        result.to_hash.first
       end
     end
   end
