@@ -321,17 +321,17 @@ module Jobs::Cron
 
       def process
         l_count = 0
-        sleep_until = {}
+        @sleep_until ||= {}
         pnl_currencies.each do |pnl_currency|
           Currency.visible.each do |currency|
             begin
-              ts = sleep_until[[pnl_currency.id, currency.id]]
+              ts = @sleep_until[[pnl_currency.id, currency.id]]
               if ts.nil? || ts < Time.now.to_i
                 l_count += process_currency(pnl_currency, currency)
               end
             rescue StandardError => e
               Rails.logger.error("Failed to process currency #{pnl_currency.id}/#{currency.id}: #{e}: #{e.backtrace.join("\n")}")
-              sleep_until[[pnl_currency.id, currency.id]] = Time.now.to_i + 300
+              @sleep_until[[pnl_currency.id, currency.id]] = Time.now.to_i + 300
               # TODO: Count the error in prometheus for this currency
             end
           end
