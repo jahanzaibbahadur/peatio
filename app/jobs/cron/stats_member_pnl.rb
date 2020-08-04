@@ -9,12 +9,12 @@ module Jobs::Cron
 
         query = "
         SELECT 'Trade', id, updated_at as ts FROM trades WHERE id > #{idx['Trade']} UNION
-        SELECT 'Adjustment', id, updated_at as ts FROM adjustments WHERE id > #{idx['Adjustment']} AND currency_id = '#{currency.id}' AND state = 'accepted' UNION
+        SELECT 'Adjustment', id, updated_at as ts FROM adjustments WHERE updated_at > '#{idx['Adjustment']}' AND currency_id = '#{currency.id}' AND state = 2 UNION
         SELECT 'Transfer', id, updated_at as ts FROM transfers WHERE id > #{idx['Transfer']} UNION
         SELECT 'Withdraw', id, completed_at as ts FROM withdraws WHERE completed_at > '#{idx['Withdraw']}' AND currency_id = '#{currency.id}' AND aasm_state = 'succeed' UNION
         SELECT 'Deposit', id, created_at as ts FROM deposits WHERE created_at > '#{idx['DepositCoin']}' AND currency_id = '#{currency.id}' AND type = 'Deposits::Coin' UNION
         SELECT 'Deposit', id, completed_at as ts FROM deposits WHERE completed_at > '#{idx['DepositFiat']}' AND currency_id = '#{currency.id}' AND type = 'Deposits::Fiat' AND aasm_state = 'accepted'
-        ORDER BY ts ASC LIMIT #{batch_size};"
+        ORDER BY ts,id ASC LIMIT #{batch_size};"
 
         trade_idx = adjustment_idx = transfer_idx = withdraw_idx = deposit_fiat_idx = deposit_coin_idx = nil
 
@@ -23,16 +23,16 @@ module Jobs::Cron
             case r[0]
               when 'Adjustment'
                 adjustment = Adjustment.find(r[1])
-                adjustment_idx = adjustment.id
+                adjustment_idx = (adjustment.updated_at.to_f * 1000).to_i + 1
                 queries += process_adjustment(pnl_currency, adjustment)
               when 'Deposit'
                 deposit = Deposit.find(r[1])
                 queries += process_deposit(pnl_currency, deposit)
                 case deposit
                 when Deposits::Fiat
-                  deposit_fiat_idx = (deposit.completed_at.to_f * 1000).to_i
+                  deposit_fiat_idx = (deposit.completed_at.to_f * 1000).to_i + 1
                 when Deposits::Coin
-                  deposit_coin_idx = (deposit.created_at.to_f * 1000).to_i
+                  deposit_coin_idx = (deposit.created_at.to_f * 1000).to_i + 1
                 end
               when 'Trade'
                 trade = Trade.find(r[1])
@@ -43,7 +43,7 @@ module Jobs::Cron
                 queries += process_trade(pnl_currency, currency, trade, sell_order)
               when 'Withdraw'
                 withdraw = Withdraw.find(r[1])
-                withdraw_idx = (withdraw.completed_at.to_f * 1000).to_i
+                withdraw_idx = (withdraw.completed_at.to_f * 1000).to_i + 1
                 queries += process_withdraw(pnl_currency, withdraw)
               when 'Transfer'
                 queries += process_transfer(pnl_currency, currency, r[1])
@@ -71,12 +71,12 @@ module Jobs::Cron
           "DepositFiat" => "1970-01-01 00:00:00.000",
           "DepositCoin" => "1970-01-01 00:00:00.000",
           "Withdraw" => "1970-01-01 00:00:00.000",
-          "Adjustment" => 0,
+          "Adjustment" => "1970-01-01 00:00:00.000",
           "Transfer" => 0,
         }
         ActiveRecord::Base.connection.select_all(query).rows.each do |name, idx|
           case name
-          when 'Withdraw', /^Deposit/
+          when /^(Deposit|Withdraw|Adjustment)/
             h[name] = Time.at(idx.to_f / 1000).utc.strftime("%F %T.%3N")
           else
             h[name] = idx

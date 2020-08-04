@@ -148,6 +148,80 @@ describe Jobs::Cron::StatsMemberPnl do
       end
     end
 
+    context 'reference type adjustments' do
+      context 'creates one pnl with positve adjustment' do
+        let!(:member) { create(:member) }
+        let!(:adjustment) { create(:adjustment, currency_id: 'btc', amount: 1.0, receiving_account_number: "btc-202-#{member.uid}") }
+        let(:btceth_price) { 100.0 }
+
+        before do
+          Jobs::Cron::StatsMemberPnl.stubs(:price_at).returns(btceth_price)
+          Jobs::Cron::StatsMemberPnl.stubs(:pnl_currencies).returns([Currency.find('eth')])
+          adjustment.accept!(validator: member)
+        end
+
+        it do
+          expect { Jobs::Cron::StatsMemberPnl.process }.to change { StatsMemberPnl.count }.by(1)
+          expect(StatsMemberPnl.last.member_id).to eq member.id
+          expect(StatsMemberPnl.last.currency_id).to eq adjustment.currency_id
+          expect(StatsMemberPnl.last.pnl_currency_id).to eq 'eth'
+          expect(StatsMemberPnl.last.total_credit).to eq adjustment.amount
+          expect(StatsMemberPnl.last.total_debit).to eq 0
+          expect(StatsMemberPnl.last.total_debit_value).to eq 0
+          expect(StatsMemberPnl.last.total_debit_fees).to eq 0
+          expect(StatsMemberPnl.last.total_credit_fees).to eq 0
+          expect(StatsMemberPnl.last.total_credit_value).to eq adjustment.amount * btceth_price
+          expect(StatsMemberPnl.last.total_balance_value).to eq adjustment.amount * btceth_price
+          expect(StatsMemberPnl.last.average_balance_price).to eq btceth_price
+        end
+      end
+
+      context 'creates one pnl with positve and negative adjustments' do
+        let(:member) { create(:member) }
+        let(:adjustment) { create(:adjustment, currency_id: 'btc', amount: 1.0, receiving_account_number: "btc-202-#{member.uid}") }
+        let(:btceth_price) { 100.0 }
+
+        before do
+          Jobs::Cron::StatsMemberPnl.stubs(:price_at).returns(btceth_price)
+          Jobs::Cron::StatsMemberPnl.stubs(:pnl_currencies).returns([Currency.find('eth')])
+          adjustment.accept!(validator: member)
+        end
+
+        it do
+          expect { Jobs::Cron::StatsMemberPnl.process }.to change { StatsMemberPnl.count }.by(1)
+          expect(StatsMemberPnl.last.member_id).to eq member.id
+          expect(StatsMemberPnl.last.currency_id).to eq adjustment.currency_id
+          expect(StatsMemberPnl.last.pnl_currency_id).to eq 'eth'
+          expect(StatsMemberPnl.last.total_credit).to eq adjustment.amount
+          expect(StatsMemberPnl.last.total_debit).to eq 0
+          expect(StatsMemberPnl.last.total_debit_value).to eq 0
+          expect(StatsMemberPnl.last.total_debit_fees).to eq 0
+          expect(StatsMemberPnl.last.total_credit_fees).to eq 0
+          expect(StatsMemberPnl.last.total_credit_value).to eq adjustment.amount * btceth_price
+          expect(StatsMemberPnl.last.total_balance_value).to eq adjustment.amount * btceth_price
+          expect(StatsMemberPnl.last.average_balance_price).to eq btceth_price
+
+          half = 1.to_d / 2
+          adjustment2 = create(:adjustment, currency_id: 'btc', amount: -half, receiving_account_number: "btc-202-#{member.uid}")
+          adjustment2.accept!(validator: member)
+
+          expect { Jobs::Cron::StatsMemberPnl.process }.to change { StatsMemberPnl.count }.by(0)
+
+          expect(StatsMemberPnl.last.member_id).to eq member.id
+          expect(StatsMemberPnl.last.currency_id).to eq adjustment.currency_id
+          expect(StatsMemberPnl.last.pnl_currency_id).to eq 'eth'
+          expect(StatsMemberPnl.last.total_credit).to eq adjustment.amount
+          expect(StatsMemberPnl.last.total_debit).to eq 0.5
+          expect(StatsMemberPnl.last.total_debit_value).to eq 50
+          expect(StatsMemberPnl.last.total_debit_fees).to eq 0
+          expect(StatsMemberPnl.last.total_credit_fees).to eq 0
+          expect(StatsMemberPnl.last.total_credit_value).to eq 1.0 * btceth_price
+          expect(StatsMemberPnl.last.total_balance_value).to eq  half * btceth_price
+          expect(StatsMemberPnl.last.average_balance_price).to eq btceth_price
+        end
+      end
+    end
+
     context 'reference type deposit' do
       context 'creates one pnl' do
         let!(:coin_deposit) { create(:deposit, :deposit_btc) }
