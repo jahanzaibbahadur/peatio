@@ -4,7 +4,6 @@ module Jobs::Cron
 
     class <<self
       def process_currency(pnl_currency, currency, batch_size=1000)
-        l_count = 0
         queries = []
         idx = last_idx(pnl_currency, currency)
 
@@ -20,7 +19,6 @@ module Jobs::Cron
         trade_idx = adjustment_idx = transfer_idx = withdraw_idx = deposit_fiat_idx = deposit_coin_idx = nil
 
         ActiveRecord::Base.connection.select_all(query).rows.each do |r|
-            l_count += 1
             Rails.logger.info { "Processing: #{r[0]} #{r[1]} (#{pnl_currency.id} / #{currency.id})" }
             case r[0]
               when 'Adjustment'
@@ -52,6 +50,7 @@ module Jobs::Cron
                 transfer_idx = r[1]
             end
         end
+        l_count = queries.size
 
         queries << build_query_idx(pnl_currency, currency.id, 'Adjustment', adjustment_idx) if adjustment_idx
         queries << build_query_idx(pnl_currency, currency.id, 'DepositFiat', deposit_fiat_idx) if deposit_fiat_idx
@@ -333,7 +332,7 @@ module Jobs::Cron
           end
         end
 
-        sleep 2 if l_count == 0
+        sleep 3 if l_count == 0
       end
 
       def build_query_idx(pnl_currency, currency_id, reference_type, idx)
